@@ -2,6 +2,7 @@ package rpc;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.IOException;
 import java.io.Serializable;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -20,8 +21,41 @@ public class Client {
     private int counter;
     private AtomicBoolean running = new AtomicBoolean(true);
 
+    /***
+     * a call waiting for value
+     */
     private class Call{
+        int id;
+        Serializable param;
+        Serializable value;
+        IOException error;
+        boolean done;
 
+        protected Call(Serializable param){
+            this.param = param;
+            synchronized (Client.this){
+                this.id = counter++;
+            }
+        }
+
+        protected synchronized void callComplete(){
+            this.done = true;
+            notify();
+        }
+
+        public synchronized void setException(IOException error){
+            this.error = error;
+            callComplete();
+        }
+
+        public synchronized void setValue(Serializable value){
+            this.value = value;
+            callComplete();
+        }
+
+        public synchronized Serializable getValue(){
+            return this.value;
+        }
     }
 
     private class Connection extends Thread{
