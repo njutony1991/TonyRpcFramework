@@ -9,6 +9,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 
+
 /**
  * Created by tony on 15-3-17.
  */
@@ -232,7 +233,7 @@ public abstract class Server {
                 try{
                     reader.startAdd();
                     SelectionKey readkey = reader.registerChannel(channel);
-                    conn = new Connection();
+                    conn = new Connection(readkey,channel,System.currentTimeMillis());
                     readkey.attach(conn);
                     synchronized (connectionList){
                         connectionList.add(numConnections,conn);
@@ -289,11 +290,88 @@ public abstract class Server {
     }
 
 
-    class Connection extends Thread{
+    class Connection {
+        private boolean headerRead = false;
+
         private SocketChannel channel;
         private ByteBuffer data;
         private ByteBuffer dataLengthBuffer;
+        private volatile  int rpcCount = 0;
         private LinkedList<Call> responseQueue;
+
+        private long lastContact;
+        private Socket socket;
+
+        private String hostAddress;
+        private int remotePort;
+        private InetAddress addr;
+
+        private ByteBuffer unwrappedData;
+        private ByteBuffer unwrappedDataLengthBuffer;
+        Class<?> protocol;
+
+        public Connection(SelectionKey key,SocketChannel channel,long lastContact){
+            this.channel = channel;
+            this.lastContact = lastContact;
+            this.data = null;
+            this.dataLengthBuffer = ByteBuffer.allocate(4);
+            this.socket = channel.socket();
+            this.addr = this.socket.getInetAddress();
+            if(addr == null)
+                this.hostAddress = "Unknown";
+            else
+                this.hostAddress = addr.getHostAddress();
+
+            this.remotePort = socket.getPort();
+            this.responseQueue = new LinkedList<Call>();
+
+        }
+
+        @Override
+        public String toString(){
+            return this.hostAddress + ":" + remotePort;
+        }
+
+        public String getHostAddress(){
+            return this.hostAddress;
+        }
+
+        public InetAddress getHostInetAddress(){
+            return this.addr;
+        }
+
+        public void setLastContact(long lastContact){
+            this.lastContact = lastContact;
+        }
+
+        public long getLastContact(){
+            return this.lastContact;
+        }
+
+        private boolean isIdle(){
+            return rpcCount==0;
+        }
+
+        synchronized private void decRpcCount(){
+            rpcCount--;
+        }
+
+        synchronized private void incrRpcCount(){
+            rpcCount++;
+        }
+
+        private boolean timedOut(long currentTime){
+            if(isIdle() && currentTime - lastContact > maxIdleTime)
+                return true;
+            return false;
+        }
+
+
+        public int readAndProcess(){
+
+            return 0;
+        }
+
     }
 
     protected Server(String bindAddress, int port, Class<? extends Serializable> paramClass,int handlerCount){
