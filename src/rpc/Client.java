@@ -1,13 +1,14 @@
 package rpc;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.Serializable;
+import javax.net.SocketFactory;
+import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Created by tony on 15-3-17.
@@ -21,6 +22,10 @@ public class Client {
     private int counter;
     private AtomicBoolean running = new AtomicBoolean(true);
 
+    private SocketFactory socketFactory;
+
+    final static int DEFAULT_PING_INTERVAL = 60000;
+    final static int PING_CALL_ID = -1;
     /***
      * a call waiting for value
      */
@@ -60,11 +65,129 @@ public class Client {
 
     private class Connection extends Thread{
         private InetSocketAddress server;
+        private ConnectionHeader header;
+        final private  ConnectionId remoteId;
+
         private Socket socket = null;
         private DataInputStream in = null;
         private DataOutputStream out = null;
+        private int rpcTimeout;
+        private int maxIdleTime;
+
+        private int maxRetries;
+        private boolean tcpNoDelay;
+        private boolean doPing;
+        private int pingInterval;
 
         private ConcurrentHashMap<Integer,Call> calls = new ConcurrentHashMap<Integer, Call>();
+        private AtomicLong lastActivity = new AtomicLong();
+        private AtomicBoolean shouldCloseConnection = new AtomicBoolean();
+        private IOException closeException;
+
+        public Connection(ConnectionId remoteId) throws IOException {
+            this.remoteId = remoteId;
+            this.server = remoteId.getAddress();
+            if (server.isUnresolved()) {
+                throw new UnknownHostException("unknown host: " + remoteId.getAddress().getHostName());
+            }
+            this.rpcTimeout = remoteId.getRpcTimeout();
+            this.maxIdleTime = remoteId.getMaxIdleTime();
+            this.maxRetries = remoteId.getMaxRetries();
+            this.tcpNoDelay = remoteId.getTcpNoDelay();
+            this.doPing = remoteId.getDoPing();
+            this.pingInterval = remoteId.getPingInterval();
+
+            this.header = new ConnectionHeader();  // to do
+
+            this.setName("IPC Client (" + socketFactory.hashCode() + ") connection to" +
+                    remoteId.getAddress().toString()); //to do
+            this.setDaemon(true);
+        }
+
+        // Update lastActivity with the current time
+        private void touch(){
+            lastActivity.set(System.currentTimeMillis());
+        }
+
+        private synchronized boolean addCall(Call call){
+            if(shouldCloseConnection.get())
+                return false;
+            calls.put(call.id,call);
+            notify();
+            return true;
+        }
+
+        /**
+         *  This class sends a ping to the remote side when timeout on
+         *  reading. If no failure is detected, it retries until at least
+         *  a byte is read.
+         */
+        private class PingInputStream extends FilterInputStream{
+            /**
+             * Creates a <code>FilterInputStream</code>
+             * by assigning the  argument <code>in</code>
+             * to the field <code>this.in</code> so as
+             * to remember it for later use.
+             *
+             * @param in the underlying input stream, or <code>null</code> if
+             *           this instance is to be created without an underlying stream.
+             */
+            protected PingInputStream(InputStream in) {
+                super(in);
+            }
+
+            private void handleTimeout(SocketTimeoutException e) throws IOException{
+                if(shouldCloseConnection.get() || !running.get() || rpcTimeout >0)
+                    throw e;
+                else
+                    sendPing();
+            }
+
+            /***
+             * Read a byte from the stream
+             * send a ping if timeout on read.Retries if no failure is detected until a byte is read
+             * @throws IOException for any IO problem other than socket timeout
+             */
+            public int read() throws IOException{
+                do{
+                    try {
+                        return super.read();
+                    }catch (SocketTimeoutException e){
+                        handleTimeout(e);
+                    }
+                }while(true);
+            }
+
+            /***
+             * Read byte into a buffer starting from offset <code>off</code>
+             * Send a ping if timeout on read.Retries if no failure is detected
+             * @param buf
+             * @param off
+             * @param len
+             * @return
+             * @throws IOException
+             */
+            public int read(byte[] buf,int off,int len) throws IOException{
+                do{
+                    try {
+                        return super.read(buf, off, len);
+                    }catch(SocketTimeoutException e){
+                        handleTimeout(e);
+                    }
+                }while(true);
+            }
+        }
+
+        private synchronized void sendPing() throws IOException{
+            long curTime = System.currentTimeMillis();
+            if(curTime-lastActivity.get() >= pingInterval){
+                lastActivity.set(curTime);
+                synchronized (out){
+                    out.writeInt(PING_CALL_ID);
+                    out.flush();
+                }
+            }
+        }
     }
 
     /**
