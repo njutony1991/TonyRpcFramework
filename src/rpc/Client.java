@@ -1,5 +1,7 @@
 package rpc;
 
+import net.NetUtils;
+
 import javax.net.SocketFactory;
 import java.io.*;
 import java.net.InetSocketAddress;
@@ -178,6 +180,58 @@ public class Client {
             }
         }
 
+        private synchronized void setupIOStreams() {
+            if(socket!=null || shouldCloseConnection.get())
+                return;
+            try{
+                final short MAX_RETRIES = 5;
+                while(true){
+                    setupConnection();
+                    InputStream inStream = NetUtils.getInputStream(socket);
+                    OutputStream outStream = NetUtils.getOutputStream(socket);
+                    writeRpcHeader(outStream);
+
+                    if(doPing)
+                        this.in = new DataInputStream(new BufferedInputStream(
+                                                      new PingInputStream(inStream)));
+                    else
+                        this.in = new DataInputStream(new BufferedInputStream(inStream));
+                    this.out = new DataOutputStream(new BufferedOutputStream(outStream));
+                    writeHeader();
+                    /**update the last activity time**/
+                    touch();
+
+                    /**start the receiver thread after the connection **/
+                    start();
+
+                    return;
+                }
+            }catch(IOException e){
+                markClosed(e);
+                close();
+            }
+        }
+
+        private void setupConnection(){
+
+        }
+
+        private void writeRpcHeader(OutputStream out){
+
+        }
+
+        private void writeHeader(){
+
+        }
+
+        private synchronized void markClosed(IOException e){
+
+        }
+
+        private synchronized void close(){
+
+        }
+
         private synchronized void sendPing() throws IOException{
             long curTime = System.currentTimeMillis();
             if(curTime-lastActivity.get() >= pingInterval){
@@ -190,6 +244,36 @@ public class Client {
         }
     }
 
+    public Client(Class<? extends Serializable> valueClass,SocketFactory factory){
+        this.valueClass = valueClass;
+        this.socketFactory = factory;
+    }
+
+    /**
+     *  get a connection from the pool,or create a new one and add it to the pool.
+     *  Connections to a given ConnectionId are reused
+     * @param remoteId
+     * @param call
+     * @return
+     */
+    private Connection getConnection(ConnectionId remoteId,Call call) throws IOException{
+        if(!running.get())
+            throw new IOException("The client is stopped");
+
+        Connection connection;
+        do{
+            synchronized (connections){
+                connection = connections.get(remoteId);
+                if(connection==null){
+                    connection = new Connection(remoteId);
+                    connections.put(remoteId,connection);
+                }
+            }
+        }while(!connection.addCall(call));
+
+        connection.setupIOStreams();
+        return connection;
+    }
     /**
      * this class holds the address and the protocol,the client connections
      * to servers are uniquely identified by <address,protocol>
