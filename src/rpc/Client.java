@@ -212,8 +212,59 @@ public class Client {
             }
         }
 
-        private void setupConnection(){
+        private void setupConnection() throws IOException{
+            short ioFailures = 0;
+            short timeoutFailures = 0;
+            while(true){
+                try{
+                    this.socket = socketFactory.createSocket();
+                    this.socket.setTcpNoDelay(tcpNoDelay);
+                    NetUtils.connect(this.socket,remoteId.getAddress(),20000);  // connection time out is 20s
+                    if(rpcTimeout > 0)
+                        pingInterval = rpcTimeout;  //rpcTimeout overwrites pingInterval
+                    this.socket.setSoTimeout(this.pingInterval);
+                    return;
+                }catch(SocketTimeoutException toe){
+                    handleConnectionFailure(timeoutFailures++,45,toe);
+                }catch(IOException e){
+                    handleConnectionFailure(ioFailures++,this.maxRetries,e);
+                }
+            }
+        }
 
+        /**
+         * Handle connection failures
+         *
+         * if the current number of retries is equal to the max number of retries,
+         * stop retrying and throw the exception;Otherwise backoff 1 second and
+         * try connecting again.
+         *
+         * @param failures
+         * @param maxRetries
+         * @param ie
+         */
+        private void handleConnectionFailure(int failures,int maxRetries,IOException ie) throws IOException {
+            closeConnection();
+            if (failures >= maxRetries)
+                throw ie;
+
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException ignored) {
+            }
+
+            System.err.println("Retrying connect to server: " +server+". Already tried "+ failures+ " time(s).");
+        }
+
+        private void closeConnection(){
+            if(socket==null)
+                return;
+            try{
+                socket.close();
+            } catch (IOException e) {
+               System.err.println("Not able to close a socket "+e);
+            }
+            socket = null;
         }
 
         private void writeRpcHeader(OutputStream out){
