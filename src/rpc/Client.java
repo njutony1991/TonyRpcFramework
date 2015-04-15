@@ -290,12 +290,55 @@ public class Client {
             close();
         }
 
-        private boolean waitForWork(){
-            return true;
+        private synchronized boolean waitForWork(){
+            // calls is empty, wait for the timeout
+            if(calls.isEmpty() && !shouldCloseConnection.get() && running.get()){
+                long timeout = maxIdleTime - (System.currentTimeMillis()-lastActivity.get());
+                if(timeout>0){
+                    try{
+                        wait(timeout);
+                    }catch(InterruptedException e) {}
+                }
+            }
+
+            if(!calls.isEmpty() && !shouldCloseConnection.get() && running.get()){
+                return true;
+            }else if(shouldCloseConnection.get()){  // the connection get shut down
+                return false;
+            }else if(calls.isEmpty()){ // idle connection closed or stopped
+                markClosed(null);
+                return false;
+            }else{  // get stopped but there are still pending requests
+                markClosed((IOException)new IOException().initCause(new InterruptedIOException()));
+                return false;
+            }
         }
 
+        /**
+         * receive a response.
+         * only one receiver, so no synchronization
+         */
         private void receiveResponse(){
+            if(shouldCloseConnection.get())
+                return;
+            touch();
 
+            try {
+                int id = in.readInt();   // try to read an id
+
+                Call call = calls.get(id);
+                int state = in.readInt();
+                if(state == Status.SUCCESS.state){
+
+                }else if(state == Status.ERROR.state){
+
+                }else if(state == Status.FATAL.state){
+
+                }
+
+            }catch(IOException e){
+                markClosed(e);
+            }
         }
 
         private synchronized void markClosed(IOException e){
