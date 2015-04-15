@@ -282,6 +282,22 @@ public class Client {
             out.write(buf.toByteArray(),0,buf.size());
         }
 
+
+        public void run(){
+            while(waitForWork())
+                receiveResponse();
+
+            close();
+        }
+
+        private boolean waitForWork(){
+            return true;
+        }
+
+        private void receiveResponse(){
+
+        }
+
         private synchronized void markClosed(IOException e){
 
         }
