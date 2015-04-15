@@ -16,6 +16,10 @@ public class ConnectionHeader implements Serializable{
         this.protocol = protocol;
     }
 
+    public String getProtocol(){
+        return this.protocol;
+    }
+
     private void readObject(ObjectInputStream in) throws IOException,ClassNotFoundException{
         in.defaultReadObject();
 

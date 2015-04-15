@@ -197,6 +197,7 @@ public class Client {
                     else
                         this.in = new DataInputStream(new BufferedInputStream(inStream));
                     this.out = new DataOutputStream(new BufferedOutputStream(outStream));
+
                     writeHeader();
                     /**update the last activity time**/
                     touch();
@@ -267,12 +268,18 @@ public class Client {
             socket = null;
         }
 
-        private void writeRpcHeader(OutputStream out){
-
+        private void writeRpcHeader(OutputStream out) throws IOException{
+            DataOutputStream outputStream = new DataOutputStream(new BufferedOutputStream(out));
+            outputStream.write(Server.HEADER.array());
+            out.flush();
         }
 
-        private void writeHeader(){
-
+        private void writeHeader() throws IOException{
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            ObjectOutputStream out = new ObjectOutputStream(buf);
+            out.writeObject(header);
+            out.writeInt(buf.size());
+            out.write(buf.toByteArray(),0,buf.size());
         }
 
         private synchronized void markClosed(IOException e){

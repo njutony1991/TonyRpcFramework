@@ -15,6 +15,9 @@ import java.util.concurrent.LinkedBlockingQueue;
  */
 
 public abstract class Server {
+
+    public static final ByteBuffer HEADER = ByteBuffer.wrap("trpc".getBytes());
+
     private String bindAddress;
     private int port;
     private int handlerCount;
